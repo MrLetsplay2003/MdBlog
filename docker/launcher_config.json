@@ -1,0 +1,11 @@
+{
+	"updateUID": true,
+	"user": "mdblog",
+
+	"updateGID": true,
+	"group": "mdblog",
+
+	"runBefore": [
+		[ "chown", "-R", "mdblog:mdblog", "/mdblog" ]
+	]
+}

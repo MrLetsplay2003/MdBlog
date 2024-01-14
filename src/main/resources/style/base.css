@@ -1,7 +1,4 @@
 body {
-	filter: invert();
-}
-
-h1 {
-	background-color: red;
+	background-color: black;
+	color: white;
 }

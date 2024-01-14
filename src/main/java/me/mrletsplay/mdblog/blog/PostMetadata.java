@@ -15,7 +15,7 @@ public record PostMetadata(Instant date, String title, String author, Set<String
 		String author = "Unknown Author";
 		Set<String> tags = Collections.emptySet();
 		for(String line : metadataString.split("\n")) {
-			if(line.isEmpty()) continue;
+			if(line.isBlank()) continue;
 			String[] spl = line.split(":", 2);
 			if(spl.length != 2) {
 				System.err.println("Invalid metadata line: " + line);
