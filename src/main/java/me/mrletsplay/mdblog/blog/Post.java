@@ -13,6 +13,8 @@ import me.mrletsplay.simplehttpserver.dom.html.HtmlDocument;
 
 public class Post {
 
+	public static final String FILE_EXTENSION = ".md";
+
 	private static final MessageDigest MD_5;
 	private static final MdRenderer RENDERER = new MdRenderer();
 
@@ -37,6 +39,11 @@ public class Post {
 
 	public Path getFilePath() {
 		return filePath;
+	}
+
+	public String getName() {
+		String fileName = filePath.getFileName().toString();
+		return fileName.substring(0, fileName.length() - FILE_EXTENSION.length());
 	}
 
 	public PostMetadata getMetadata() {
