@@ -70,7 +70,6 @@ public class MdBlog {
 					return;
 				}
 
-				System.out.println(path);
 				createPostsIndex(path);
 				return;
 			}
@@ -177,7 +176,6 @@ public class MdBlog {
 			.map(p -> {
 				String postMd = indexPostTemplate;
 				Post post = posts.get(path.concat(p));
-				System.out.println(p);
 
 				HtmlElement title = new HtmlElement("a");
 				title.setAttribute("href", p.toString());
