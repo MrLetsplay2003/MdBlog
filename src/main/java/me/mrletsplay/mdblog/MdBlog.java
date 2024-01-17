@@ -175,7 +175,7 @@ public class MdBlog {
 		indexMd = indexMd.replace("{posts}", postsInDir.stream()
 			.map(p -> {
 				String postMd = indexPostTemplate;
-				Post post = posts.get(path.concat(p));
+				Post post = posts.get(path == null ? p : path.concat(p));
 
 				HtmlElement title = new HtmlElement("a");
 				title.setAttribute("href", p.toString());
