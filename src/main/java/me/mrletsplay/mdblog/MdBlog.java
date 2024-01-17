@@ -6,7 +6,6 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -14,13 +13,14 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import me.mrletsplay.mdblog.blog.Post;
+import me.mrletsplay.mdblog.markdown.MdParser;
+import me.mrletsplay.mdblog.markdown.MdRenderer;
+import me.mrletsplay.mdblog.util.PostPath;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlDocument;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlElement;
 import me.mrletsplay.simplehttpserver.http.HttpRequestMethod;
-import me.mrletsplay.simplehttpserver.http.HttpStatusCodes;
 import me.mrletsplay.simplehttpserver.http.document.FileDocument;
 import me.mrletsplay.simplehttpserver.http.request.HttpRequestContext;
-import me.mrletsplay.simplehttpserver.http.response.TextResponse;
 import me.mrletsplay.simplehttpserver.http.server.HttpServer;
 
 public class MdBlog {
@@ -32,7 +32,12 @@ public class MdBlog {
 	private static HttpServer server;
 	private static WatchService watchService;
 	private static List<WatchKey> watchedDirectories;
-	private static Map<String, Post> posts;
+	private static Map<PostPath, Post> posts;
+
+	private static String
+		indexTemplate,
+		indexSubBlogTemplate,
+		indexPostTemplate;
 
 	public static void main(String[] args) throws IOException {
 		server = new HttpServer(HttpServer.newConfigurationBuilder()
@@ -40,33 +45,44 @@ public class MdBlog {
 			.port(3706)
 			.create());
 
-		server.getDocumentProvider().registerPattern(HttpRequestMethod.GET, "/posts", () -> {
-			createPostsIndex(POSTS_PATH);
+		server.getDocumentProvider().register(HttpRequestMethod.GET, "/posts", () -> {
+			HttpRequestContext ctx = HttpRequestContext.getCurrentContext();
+			ctx.redirect("/posts/");
+		});
+
+		server.getDocumentProvider().register(HttpRequestMethod.GET, "/posts/", () -> {
+			createPostsIndex(null);
 		});
 
 		server.getDocumentProvider().registerPattern(HttpRequestMethod.GET, "/posts/{path...}", () -> {
 			HttpRequestContext ctx = HttpRequestContext.getCurrentContext();
-			String path = ctx.getPathParameters().get("path");
+			String rawPath = ctx.getPathParameters().get("path");
+			PostPath path = PostPath.parse(rawPath);
 			Post post = posts.get(path);
 			if(post != null) {
 				post.getContent().createContent();
 				return;
 			}
 
-			Path resolved = POSTS_PATH.resolve(path).normalize();
+			if(posts.keySet().stream().anyMatch(p -> p.startsWith(path))) {
+				if(!rawPath.endsWith("/")) {
+					ctx.redirect("/posts/" + rawPath + "/");
+					return;
+				}
+
+				System.out.println(path);
+				createPostsIndex(path);
+				return;
+			}
+
+			Path resolved = POSTS_PATH.resolve(path.toNioPath()).normalize();
 			if(!resolved.startsWith(POSTS_PATH)) {
 				server.getDocumentProvider().getNotFoundDocument().createContent();
 				return;
 			}
 
-			if(!Files.isRegularFile(resolved)) {
-				if(!Files.isDirectory(resolved)) {
-					server.getDocumentProvider().getNotFoundDocument().createContent();
-					return;
-				}
-
-				createPostsIndex(resolved);
-
+			if(!Files.isRegularFile(resolved) || !Files.isReadable(resolved)) {
+				server.getDocumentProvider().getNotFoundDocument().createContent();
 				return;
 			}
 
@@ -74,12 +90,18 @@ public class MdBlog {
 				new FileDocument(resolved).createContent();
 			} catch (IOException e) {
 				e.printStackTrace();
+				ctx.setException(e);
+				server.getDocumentProvider().getErrorDocument().createContent();
 			}
 		});
 
 		extractAndRegister("style/base.css");
 		extractAndRegister("style/index.css");
 		extractAndRegister("style/post.css");
+
+		indexTemplate = Files.readString(extract("template/index.md"));
+		indexPostTemplate = Files.readString(extract("template/index-post.md"));
+		indexSubBlogTemplate = Files.readString(extract("template/index-sub-blog.md"));
 
 		server.start();
 
@@ -109,49 +131,82 @@ public class MdBlog {
 		}
 	}
 
-	private static void createPostsIndex(Path directory) {
-		try {
-			// Generate posts index
-			List<Path> inDir = Files.list(directory)
-				.filter(p -> Files.isDirectory(p) || posts.values().stream().anyMatch(post -> post.getFilePath().equals(p)))
-				.collect(Collectors.toList());
-			Collections.sort(inDir);
+	private static void createPostsIndex(PostPath path) {
+		// Generate posts index
+		List<PostPath> allPaths = posts.keySet().stream()
+			.filter(p -> path == null || (p.startsWith(path) && !p.equals(path)))
+			.map(p -> path == null ? p : p.subPath(path.length()))
+			.toList();
 
-			HtmlDocument index = new HtmlDocument();
-			index.setTitle("Index of " + directory.getFileName());
-			index.addStyleSheet("/style/index.css");
+		List<PostPath> directories = allPaths.stream()
+			.filter(p -> p.length() > 1)
+			.map(p -> p.subPath(0, 1))
+			.distinct()
+			.toList();
 
-			HtmlElement ul = new HtmlElement("ul");
-			for(Path p : inDir) {
-				HtmlElement li = new HtmlElement("li");
-				HtmlElement a = new HtmlElement("a");
-				String relPath = directory.relativize(p).toString();
-				if(Files.isRegularFile(p)) relPath = relPath.substring(0, relPath.length() - Post.FILE_EXTENSION.length());
-				// TODO: only works with trailing /
-				a.setAttribute("href", relPath);
-				a.setText(relPath);
-				li.appendChild(a);
-				ul.appendChild(li);
-			}
+		List<PostPath> postsInDir = allPaths.stream()
+			.filter(p -> p.length() == 1)
+			.toList();
 
-			index.getBodyNode().appendChild(ul);
+//			List<Path> inDir = Files.list(directory)
+//				.filter(p -> Files.isDirectory(p) || posts.values().stream().anyMatch(post -> post.getFilePath().equals(p)))
+//				.collect(Collectors.toList());
+//			Collections.sort(inDir);
 
-			index.createContent();
-		}catch(IOException e) {
-			e.printStackTrace();
-			HttpRequestContext ctx = HttpRequestContext.getCurrentContext();
-			ctx.respond(HttpStatusCodes.INTERNAL_SERVER_ERROR_500, new TextResponse("Failed to create index"));
-		}
+		String blogName = path == null ? "/" : path.getName();
+
+		HtmlDocument index = new HtmlDocument();
+		index.setTitle("Index of " + blogName);
+		index.addStyleSheet("/style/base.css");
+		index.addStyleSheet("/style/index.css");
+
+		String indexMd = indexTemplate;
+		indexMd = indexMd.replace("{name}", blogName);
+		indexMd = indexMd.replace("{sub_blogs}", directories.stream()
+			.map(p -> {
+				String subBlogMd = indexSubBlogTemplate;
+
+				HtmlElement name = new HtmlElement("a");
+				name.setAttribute("href", p.toString());
+				name.setText(p.getName());
+				subBlogMd = subBlogMd.replace("{name}", name.toString());
+				return subBlogMd;
+			})
+			.collect(Collectors.joining("\n\n")));
+		indexMd = indexMd.replace("{posts}", postsInDir.stream()
+			.map(p -> {
+				String postMd = indexPostTemplate;
+				Post post = posts.get(path.concat(p));
+				System.out.println(p);
+
+				HtmlElement title = new HtmlElement("a");
+				title.setAttribute("href", p.toString());
+				title.setText(post.getName());
+				postMd = postMd.replace("{title}", title.toString());
+
+				postMd = postMd.replace("{author}", post.getMetadata().author());
+				postMd = postMd.replace("{date}", post.getMetadata().date().toString());
+				postMd = postMd.replace("{tags}", post.getMetadata().tags().stream().collect(Collectors.joining(", ")));
+				postMd = postMd.replace("{description}", post.getMetadata().description());
+				return postMd;
+			})
+			.collect(Collectors.joining("\n\n")));
+
+		index.getBodyNode().appendChild(new MdRenderer().render(MdParser.parse(indexMd)));
+		index.createContent();
 	}
 
-	private static void extractAndRegister(String path) throws IOException {
+	private static Path extract(String path) throws IOException {
 		Path filePath = FILES_PATH.resolve(path);
 		if(!Files.exists(filePath)) {
 			Files.createDirectories(filePath.getParent());
 			Files.write(filePath, MdBlog.class.getResourceAsStream("/" + path).readAllBytes());
 		}
+		return filePath;
+	}
 
-		server.getDocumentProvider().register(HttpRequestMethod.GET, "/" + path, new FileDocument(filePath));
+	private static void extractAndRegister(String path) throws IOException {
+		server.getDocumentProvider().register(HttpRequestMethod.GET, "/" + path, new FileDocument(extract(path)));
 	}
 
 	private static void updateBlogs() throws IOException {
@@ -167,9 +222,9 @@ public class MdBlog {
 			.filter(f -> posts.values().stream().noneMatch(p -> p.getFilePath().equals(f)))
 			.forEach(f -> {
 				try {
-					String path = POSTS_PATH.relativize(f).toString();
-					path = path.substring(0, path.length() - Post.FILE_EXTENSION.length());
-					posts.put(path, new Post(f));
+					String postName = f.getFileName().toString();
+					postName = postName.substring(0, postName.length() - Post.FILE_EXTENSION.length());
+					posts.put(PostPath.of(POSTS_PATH.relativize(f).getParent(), postName), new Post(f));
 				} catch (IOException e) {}
 			});
 	}

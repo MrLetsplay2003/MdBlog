@@ -7,13 +7,14 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public record PostMetadata(Instant date, String title, String author, Set<String> tags) {
+public record PostMetadata(Instant date, String title, String author, Set<String> tags, String description) {
 
 	public static PostMetadata load(String metadataString) {
 		Instant date = Instant.EPOCH;
 		String title = "Untitled Post";
 		String author = "Unknown Author";
-		Set<String> tags = Collections.emptySet();
+		String description = "No description";
+		Set<String> tags = Collections.singleton("untagged");
 		for(String line : metadataString.split("\n")) {
 			if(line.isBlank()) continue;
 			String[] spl = line.split(":", 2);
@@ -37,7 +38,7 @@ public record PostMetadata(Instant date, String title, String author, Set<String
 			}
 		}
 
-		return new PostMetadata(date, title, author, tags);
+		return new PostMetadata(date, title, author, tags, description);
 	}
 
 }
