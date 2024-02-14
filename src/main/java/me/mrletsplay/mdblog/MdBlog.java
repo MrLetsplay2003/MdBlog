@@ -1,5 +1,6 @@
 package me.mrletsplay.mdblog;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
@@ -10,6 +11,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import me.mrletsplay.mdblog.blog.Post;
@@ -29,15 +31,21 @@ public class MdBlog {
 		FILES_PATH = Path.of("files"),
 		POSTS_PATH = FILES_PATH.resolve("posts");
 
+	private static final String
+		INDEX_NAME = "index",
+		INDEX_POST_NAME = "index-post",
+		INDEX_SUB_BLOG_NAME = "index-sub-blog";
+
 	private static HttpServer server;
 	private static WatchService watchService;
 	private static List<WatchKey> watchedDirectories;
 	private static Map<PostPath, Post> posts;
+	private static Map<PostPath, String> indexTemplates;
 
 	private static String
-		indexTemplate,
-		indexSubBlogTemplate,
-		indexPostTemplate;
+		defaultIndexTemplate,
+		defaultIndexSubBlogTemplate,
+		defaultIndexPostTemplate;
 
 	public static void main(String[] args) throws IOException {
 		server = new HttpServer(HttpServer.newConfigurationBuilder()
@@ -45,16 +53,11 @@ public class MdBlog {
 			.port(3706)
 			.create());
 
-		server.getDocumentProvider().register(HttpRequestMethod.GET, "/posts", () -> {
-			HttpRequestContext ctx = HttpRequestContext.getCurrentContext();
-			ctx.redirect("/posts/");
-		});
-
-		server.getDocumentProvider().register(HttpRequestMethod.GET, "/posts/", () -> {
+		server.getDocumentProvider().register(HttpRequestMethod.GET, "/", () -> {
 			createPostsIndex(null);
 		});
 
-		server.getDocumentProvider().registerPattern(HttpRequestMethod.GET, "/posts/{path...}", () -> {
+		server.getDocumentProvider().registerPattern(HttpRequestMethod.GET, "/{path...}", () -> {
 			HttpRequestContext ctx = HttpRequestContext.getCurrentContext();
 			String rawPath = ctx.getPathParameters().get("path");
 			PostPath path = PostPath.parse(rawPath);
@@ -66,7 +69,7 @@ public class MdBlog {
 
 			if(posts.keySet().stream().anyMatch(p -> p.startsWith(path))) {
 				if(!rawPath.endsWith("/")) {
-					ctx.redirect("/posts/" + rawPath + "/");
+					ctx.redirect(path.subPath(path.length() - 1).toString() + "/");
 					return;
 				}
 
@@ -98,9 +101,9 @@ public class MdBlog {
 		extractAndRegister("style/index.css");
 		extractAndRegister("style/post.css");
 
-		indexTemplate = Files.readString(extract("template/index.md"));
-		indexPostTemplate = Files.readString(extract("template/index-post.md"));
-		indexSubBlogTemplate = Files.readString(extract("template/index-sub-blog.md"));
+		defaultIndexTemplate = Files.readString(extract("template/index.md"));
+		defaultIndexPostTemplate = Files.readString(extract("template/index-post.md"));
+		defaultIndexSubBlogTemplate = Files.readString(extract("template/index-sub-blog.md"));
 
 		server.start();
 
@@ -109,20 +112,23 @@ public class MdBlog {
 
 		watchedDirectories = new ArrayList<>();
 		watchService = POSTS_PATH.getFileSystem().newWatchService();
+
 		posts = new HashMap<>();
+		indexTemplates = new HashMap<>();
 		updateBlogs();
 		watchFolders();
 
 		while(true) {
 			try {
-				WatchKey key = watchService.take();
-				key.pollEvents();
+				WatchKey key = watchService.poll(5, TimeUnit.MINUTES);
+				if(key != null) key.pollEvents();
+
 				updateBlogs();
 				watchFolders();
-				if(!key.reset()) {
+
+				if(key != null && !key.reset()) {
 					key.cancel();
 					watchedDirectories.remove(key);
-					continue;
 				}
 			} catch (InterruptedException e) {
 				break;
@@ -147,17 +153,26 @@ public class MdBlog {
 			.filter(p -> p.length() == 1)
 			.toList();
 
-//			List<Path> inDir = Files.list(directory)
-//				.filter(p -> Files.isDirectory(p) || posts.values().stream().anyMatch(post -> post.getFilePath().equals(p)))
-//				.collect(Collectors.toList());
-//			Collections.sort(inDir);
-
 		String blogName = path == null ? "/" : path.getName();
+
+		String indexTemplate;
+		String indexSubBlogTemplate;
+		String indexPostTemplate;
+
+		if(path != null) {
+			indexTemplate = indexTemplates.getOrDefault(path.concat(PostPath.parse(INDEX_NAME)), defaultIndexTemplate);
+			indexSubBlogTemplate = indexTemplates.getOrDefault(path.concat(PostPath.parse(INDEX_SUB_BLOG_NAME)), defaultIndexSubBlogTemplate);
+			indexPostTemplate = indexTemplates.getOrDefault(path.concat(PostPath.parse(INDEX_POST_NAME)), defaultIndexPostTemplate);
+		}else {
+			indexTemplate = defaultIndexTemplate;
+			indexSubBlogTemplate = defaultIndexSubBlogTemplate;
+			indexPostTemplate = defaultIndexPostTemplate;
+		}
 
 		HtmlDocument index = new HtmlDocument();
 		index.setTitle("Index of " + blogName);
-		index.addStyleSheet("/style/base.css");
-		index.addStyleSheet("/style/index.css");
+		index.addStyleSheet("/_/style/base.css");
+		index.addStyleSheet("/_/style/index.css");
 
 		String indexMd = indexTemplate;
 		indexMd = indexMd.replace("{name}", blogName);
@@ -172,6 +187,7 @@ public class MdBlog {
 				return subBlogMd;
 			})
 			.collect(Collectors.joining("\n\n")));
+
 		indexMd = indexMd.replace("{posts}", postsInDir.stream()
 			.map(p -> {
 				String postMd = indexPostTemplate;
@@ -204,7 +220,7 @@ public class MdBlog {
 	}
 
 	private static void extractAndRegister(String path) throws IOException {
-		server.getDocumentProvider().register(HttpRequestMethod.GET, "/" + path, new FileDocument(extract(path)));
+		server.getDocumentProvider().register(HttpRequestMethod.GET, "/_/" + path, new FileDocument(extract(path)));
 	}
 
 	private static void updateBlogs() throws IOException {
@@ -214,6 +230,8 @@ public class MdBlog {
 			if(!p.update()) it.remove();
 		}
 
+		indexTemplates.clear();
+
 		Files.walk(POSTS_PATH)
 			.filter(Files::isRegularFile)
 			.filter(f -> f.getFileName().toString().endsWith(Post.FILE_EXTENSION))
@@ -222,7 +240,15 @@ public class MdBlog {
 				try {
 					String postName = f.getFileName().toString();
 					postName = postName.substring(0, postName.length() - Post.FILE_EXTENSION.length());
-					posts.put(PostPath.of(POSTS_PATH.relativize(f).getParent(), postName), new Post(f));
+					PostPath path = PostPath.of(POSTS_PATH.relativize(f).getParent(), postName);
+
+					if(INDEX_NAME.equals(postName) || INDEX_SUB_BLOG_NAME.equals(postName) || INDEX_POST_NAME.equals(postName)) {
+						// File is an index template, don't parse it as a post
+						indexTemplates.put(path, Files.readString(f, StandardCharsets.UTF_8));
+						return;
+					}
+
+					posts.put(path, new Post(f));
 				} catch (IOException e) {}
 			});
 	}

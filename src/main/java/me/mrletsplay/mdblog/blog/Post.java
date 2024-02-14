@@ -65,8 +65,8 @@ public class Post {
 		document.getBodyNode().appendChild(RENDERER.render(MdParser.parse(spl[1])));
 		document.setTitle(metadata.title());
 		document.setDescription(metadata.author());
-		document.addStyleSheet("/style/base.css");
-		document.addStyleSheet("/style/post.css");
+		document.addStyleSheet("/_/style/base.css");
+		document.addStyleSheet("/_/style/post.css");
 		this.content = document;
 	}
 
