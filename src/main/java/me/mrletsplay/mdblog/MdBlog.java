@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import me.mrletsplay.mdblog.blog.Post;
+import me.mrletsplay.mdblog.blog.PostMetadata;
 import me.mrletsplay.mdblog.markdown.MdParser;
 import me.mrletsplay.mdblog.markdown.MdRenderer;
 import me.mrletsplay.mdblog.util.PostPath;
@@ -192,16 +193,17 @@ public class MdBlog {
 			.map(p -> {
 				String postMd = indexPostTemplate;
 				Post post = posts.get(path == null ? p : path.concat(p));
+				PostMetadata meta = post.getMetadata();
 
 				HtmlElement title = new HtmlElement("a");
 				title.setAttribute("href", p.toString());
-				title.setText(post.getName());
+				title.setText(meta.title());
 				postMd = postMd.replace("{title}", title.toString());
 
-				postMd = postMd.replace("{author}", post.getMetadata().author());
-				postMd = postMd.replace("{date}", post.getMetadata().date().toString());
-				postMd = postMd.replace("{tags}", post.getMetadata().tags().stream().collect(Collectors.joining(", ")));
-				postMd = postMd.replace("{description}", post.getMetadata().description());
+				postMd = postMd.replace("{author}", meta.author());
+				postMd = postMd.replace("{date}", meta.date().toString());
+				postMd = postMd.replace("{tags}", meta.tags().stream().collect(Collectors.joining(", ")));
+				postMd = postMd.replace("{description}", meta.description());
 				return postMd;
 			})
 			.collect(Collectors.joining("\n\n")));
