@@ -125,6 +125,7 @@ public class MdBlog {
 
 		HtmlDocument index = new HtmlDocument();
 		index.setTitle("Index of " + blogName);
+		index.setDescription("A blog hosted using MdBlog");
 		index.addStyleSheet("_/style/base.css");
 		index.addStyleSheet("_/style/index.css");
 
