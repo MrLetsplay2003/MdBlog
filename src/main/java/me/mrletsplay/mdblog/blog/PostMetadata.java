@@ -42,6 +42,7 @@ public record PostMetadata(Instant date, String title, String author, Set<String
 
 					tags = Collections.unmodifiableSet(t);
 				}
+				case "description" -> description = value;
 			}
 		}
 
