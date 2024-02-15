@@ -4,14 +4,27 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 
-public record PostPath(String[] segments) {
+public class PostPath {
 
-	public PostPath {
+	private static final PostPath ROOT = new PostPath();
+
+	private final String[] segments;
+
+	private PostPath(String[] segments) {
 		if(segments.length == 0) throw new IllegalArgumentException("Number of segments must be greater than 0");
+		this.segments = segments;
+	}
+
+	private PostPath() {
+		this.segments = new String[0];
+	}
+
+	public String[] getSegments() {
+		return segments;
 	}
 
 	public PostPath getParent() {
-		if(segments.length == 1) return null;
+		if(segments.length == 1) return ROOT;
 		return new PostPath(Arrays.copyOfRange(segments, 0, segments.length - 1));
 	}
 
@@ -41,6 +54,7 @@ public record PostPath(String[] segments) {
 	}
 
 	public String getName() {
+		if(this == ROOT) return "/";
 		return segments[segments.length - 1];
 	}
 
@@ -49,6 +63,7 @@ public record PostPath(String[] segments) {
 	}
 
 	public Path toNioPath() {
+		if(this == ROOT) return Paths.get("/");
 		return Paths.get(segments[0], Arrays.copyOfRange(segments, 1, segments.length));
 	}
 
@@ -77,13 +92,17 @@ public record PostPath(String[] segments) {
 		return String.join("/", segments);
 	}
 
+	public static PostPath root() {
+		return ROOT;
+	}
+
 	public static PostPath parse(String path) {
 		if(path == null || path.isEmpty()) throw new IllegalArgumentException("Path must not be null or empty");
 		return new PostPath(path.split("/"));
 	}
 
-	public static PostPath of(Path path) throws IllegalArgumentException {
-		if(path.getNameCount() == 0) throw new IllegalArgumentException("Path must not be a root path");
+	public static PostPath of(Path path) {
+		if(path.getNameCount() == 0) return ROOT;
 		String[] names = new String[path.getNameCount()];
 		for(int i = 0; i < path.getNameCount(); i++) {
 			names[i] = path.getName(i).toString();

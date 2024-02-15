@@ -4,6 +4,7 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -34,7 +35,13 @@ public record PostMetadata(Instant date, String title, String author, Set<String
 				}
 				case "title" -> title = value;
 				case "author" -> author = value;
-				case "tags" -> tags = Arrays.stream(value.split(",")).map(String::trim).collect(Collectors.toUnmodifiableSet());
+				case "tags" -> {
+					Set<String> t = Arrays.stream(value.split(","))
+						.map(String::trim)
+						.collect(Collectors.toCollection(LinkedHashSet::new));
+
+					tags = Collections.unmodifiableSet(t);
+				}
 			}
 		}
 

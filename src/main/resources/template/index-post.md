@@ -1,5 +1,5 @@
 ### {title}
-#### by {author} on {date}
+#### by {author} {date_relative}
 *{tags}*
 
 
