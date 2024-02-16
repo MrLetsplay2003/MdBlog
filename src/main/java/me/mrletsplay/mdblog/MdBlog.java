@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -20,6 +21,7 @@ import me.mrletsplay.mdblog.markdown.MdParser;
 import me.mrletsplay.mdblog.markdown.MdRenderer;
 import me.mrletsplay.mdblog.util.PostPath;
 import me.mrletsplay.mdblog.util.TimeFormatter;
+import me.mrletsplay.mrcore.http.HttpUtils;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlDocument;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlElement;
 import me.mrletsplay.simplehttpserver.http.HttpRequestMethod;
@@ -101,6 +103,8 @@ public class MdBlog {
 	}
 
 	private static void createPostsIndex(PostPath path) {
+		String tag = HttpRequestContext.getCurrentContext().getRequestedPath().getQuery().getFirst("tag");
+
 		// Generate posts index
 		List<PostPath> allPaths = posts.keySet().stream()
 			.filter(p -> path == null || (p.startsWith(path) && !p.equals(path)))
@@ -148,6 +152,7 @@ public class MdBlog {
 				String postMd = indexPostTemplate;
 				Post post = posts.get(path == null ? p : path.concat(p));
 				PostMetadata meta = post.getMetadata();
+				if(tag != null && !meta.tags().contains(tag)) return null;
 
 				HtmlElement title = new HtmlElement("a");
 				title.setAttribute("href", p.toString());
@@ -158,10 +163,18 @@ public class MdBlog {
 				postMd = postMd.replace("{date}", TimeFormatter.toDateOnly(meta.date()));
 				postMd = postMd.replace("{date_time}", TimeFormatter.toDateAndTime(meta.date()));
 				postMd = postMd.replace("{date_relative}", TimeFormatter.toRelativeTime(meta.date()));
-				postMd = postMd.replace("{tags}", meta.tags().stream().collect(Collectors.joining(", ")));
+				postMd = postMd.replace("{tags}", meta.tags().stream()
+					.map(t -> {
+						HtmlElement link = new HtmlElement("a");
+						link.setText(t);
+						link.setAttribute("href", "?tag=" + HttpUtils.urlEncode(t));
+						return link.toString();
+					})
+					.collect(Collectors.joining(", ")));
 				postMd = postMd.replace("{description}", meta.description());
 				return postMd;
 			})
+			.filter(Objects::nonNull)
 			.collect(Collectors.joining("\n\n")));
 
 		index.getBodyNode().appendChild(new MdRenderer().render(MdParser.parse(indexMd)));
