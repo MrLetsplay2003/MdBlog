@@ -8,7 +8,9 @@ import java.security.NoSuchAlgorithmException;
 
 import me.mrletsplay.mdblog.markdown.MdParser;
 import me.mrletsplay.mdblog.markdown.MdRenderer;
-import me.mrletsplay.mrcore.misc.ByteUtils;
+import me.mrletsplay.mdblog.template.Template;
+import me.mrletsplay.mdblog.template.Templates;
+import me.mrletsplay.mdblog.util.TimeFormatter;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlDocument;
 
 public class Post {
@@ -27,14 +29,12 @@ public class Post {
 	}
 
 	private Path filePath;
-	private String checksum;
+//	private String checksum; TODO currently unused, post also needs to update when templates change
 	private PostMetadata metadata;
 	private HtmlDocument content;
 
 	public Post(Path filePath) throws IOException {
 		this.filePath = filePath;
-		this.checksum = checksum(filePath);
-		load();
 	}
 
 	public Path getFilePath() {
@@ -54,7 +54,7 @@ public class Post {
 		return content;
 	}
 
-	private void load() throws IOException {
+	private void load(Templates templates) throws IOException {
 		String postData = Files.readString(filePath);
 		String[] spl = postData.split("\n---\n", 2);
 		if(spl.length != 2) throw new IOException("Invalid post file");
@@ -62,30 +62,37 @@ public class Post {
 		this.metadata = PostMetadata.load(spl[0]);
 
 		HtmlDocument document = new HtmlDocument();
-		document.getBodyNode().appendChild(RENDERER.render(MdParser.parse(spl[1])));
+		document.getBodyNode().appendChild(RENDERER.render(MdParser.parse(templates.render(Template.POST,
+			"content", spl[1],
+			"title", metadata.title(),
+			"author", metadata.author(),
+			"description", metadata.description(),
+			"date", TimeFormatter.toDateOnly(metadata.date()),
+			"date_time", TimeFormatter.toDateAndTime(metadata.date()),
+			"date_relative", TimeFormatter.toRelativeTime(metadata.date())))));
 		document.setTitle(metadata.title());
 		document.setDescription(metadata.description());
-		document.addStyleSheet("/_/style/base.css");
-		document.addStyleSheet("/_/style/post.css");
+		document.addStyleSheet("_/style/base.css");
+		document.addStyleSheet("_/style/post.css");
 		this.content = document;
 	}
 
-	public boolean update() {
+	public boolean update(Templates templates) {
 		if(!Files.exists(filePath)) return false;
 
 		try {
-			String newChecksum = checksum(filePath);
-			if(checksum.equals(newChecksum)) return true;
-			this.checksum = newChecksum;
-			load();
+			//String newChecksum = checksum(filePath);
+			//if(checksum != null && checksum.equals(newChecksum)) return true;
+			//this.checksum = newChecksum;
+			load(templates);
 			return true;
 		} catch (IOException e) {
 			return false;
 		}
 	}
 
-	private static String checksum(Path filePath) throws IOException {
-		return ByteUtils.bytesToHex(MD_5.digest(Files.readAllBytes(filePath)));
-	}
+//	private static String checksum(Path filePath) throws IOException {
+//		return ByteUtils.bytesToHex(MD_5.digest(Files.readAllBytes(filePath)));
+//	}
 
 }

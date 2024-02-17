@@ -7,11 +7,11 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -19,6 +19,8 @@ import me.mrletsplay.mdblog.blog.Post;
 import me.mrletsplay.mdblog.blog.PostMetadata;
 import me.mrletsplay.mdblog.markdown.MdParser;
 import me.mrletsplay.mdblog.markdown.MdRenderer;
+import me.mrletsplay.mdblog.template.Template;
+import me.mrletsplay.mdblog.template.Templates;
 import me.mrletsplay.mdblog.util.PostPath;
 import me.mrletsplay.mdblog.util.TimeFormatter;
 import me.mrletsplay.mrcore.http.HttpUtils;
@@ -35,22 +37,14 @@ public class MdBlog {
 		FILES_PATH = Path.of("files"),
 		POSTS_PATH = FILES_PATH.resolve("posts");
 
-	private static final String
-		INDEX_NAME = "index",
-		INDEX_POST_NAME = "index-post",
-		INDEX_SUB_BLOG_NAME = "index-sub-blog";
-
 	private static HttpServer server;
 	private static WatchService watchService;
 	private static List<WatchKey> watchedDirectories;
 	private static Map<PostPath, Post> posts;
-	private static Map<PostPath, String> indexTemplates;
+	private static Map<PostPath, Templates> indexTemplates;
 	private static Map<PostPath, FileDocument> globalResources;
 
-	private static String
-		defaultIndexTemplate,
-		defaultIndexSubBlogTemplate,
-		defaultIndexPostTemplate;
+	private static Templates defaultTemplates;
 
 	public static void main(String[] args) throws IOException {
 		server = new HttpServer(HttpServer.newConfigurationBuilder()
@@ -61,9 +55,10 @@ public class MdBlog {
 		server.getDocumentProvider().register(HttpRequestMethod.GET, "/", () -> createPostsIndex(PostPath.root()));
 		server.getDocumentProvider().registerPattern(HttpRequestMethod.GET, "/{path...}", () -> handleRequest(HttpRequestContext.getCurrentContext()));
 
-		defaultIndexTemplate = Files.readString(extract("template/index.md"));
-		defaultIndexPostTemplate = Files.readString(extract("template/index-post.md"));
-		defaultIndexSubBlogTemplate = Files.readString(extract("template/index-sub-blog.md"));
+		defaultTemplates = new Templates(null);
+		for(Template template : Template.values()) {
+			defaultTemplates.put(template, Files.readString(extract("template/" + template.getName() + ".md")));
+		}
 
 		server.start();
 
@@ -123,9 +118,7 @@ public class MdBlog {
 
 		String blogName = path.getName();
 
-		String indexTemplate = indexTemplates.getOrDefault(path.concat(PostPath.parse(INDEX_NAME)), defaultIndexTemplate);
-		String indexSubBlogTemplate = indexTemplates.getOrDefault(path.concat(PostPath.parse(INDEX_SUB_BLOG_NAME)), defaultIndexSubBlogTemplate);
-		String indexPostTemplate = indexTemplates.getOrDefault(path.concat(PostPath.parse(INDEX_POST_NAME)), defaultIndexPostTemplate);
+		Templates templates = indexTemplates.getOrDefault(path, defaultTemplates);
 
 		HtmlDocument index = new HtmlDocument();
 		index.setTitle("Index of " + blogName);
@@ -133,49 +126,44 @@ public class MdBlog {
 		index.addStyleSheet("_/style/base.css");
 		index.addStyleSheet("_/style/index.css");
 
-		String indexMd = indexTemplate;
-		indexMd = indexMd.replace("{name}", blogName);
-		indexMd = indexMd.replace("{sub_blogs}", directories.stream()
-			.map(p -> {
-				String subBlogMd = indexSubBlogTemplate;
+		String indexMd = templates.render(Template.INDEX,
+			"name", blogName,
+			"sub_blogs", directories.stream()
+				.map(p -> {
+					HtmlElement name = new HtmlElement("a");
+					name.setAttribute("href", p.toString());
+					name.setText(p.getName());
+					return templates.render(Template.INDEX_SUB_BLOG,
+						"name", name.toString());
+				})
+				.collect(Collectors.joining("\n\n")),
+			"posts", postsInDir.stream()
+				.map(p -> {
+					Post post = posts.get(path == null ? p : path.concat(p));
+					PostMetadata meta = post.getMetadata();
+					if(tag != null && !meta.tags().contains(tag)) return null;
 
-				HtmlElement name = new HtmlElement("a");
-				name.setAttribute("href", p.toString());
-				name.setText(p.getName());
-				subBlogMd = subBlogMd.replace("{name}", name.toString());
-				return subBlogMd;
-			})
-			.collect(Collectors.joining("\n\n")));
+					HtmlElement title = new HtmlElement("a");
+					title.setAttribute("href", p.toString());
+					title.setText(meta.title());
 
-		indexMd = indexMd.replace("{posts}", postsInDir.stream()
-			.map(p -> {
-				String postMd = indexPostTemplate;
-				Post post = posts.get(path == null ? p : path.concat(p));
-				PostMetadata meta = post.getMetadata();
-				if(tag != null && !meta.tags().contains(tag)) return null;
-
-				HtmlElement title = new HtmlElement("a");
-				title.setAttribute("href", p.toString());
-				title.setText(meta.title());
-				postMd = postMd.replace("{title}", title.toString());
-
-				postMd = postMd.replace("{author}", meta.author());
-				postMd = postMd.replace("{date}", TimeFormatter.toDateOnly(meta.date()));
-				postMd = postMd.replace("{date_time}", TimeFormatter.toDateAndTime(meta.date()));
-				postMd = postMd.replace("{date_relative}", TimeFormatter.toRelativeTime(meta.date()));
-				postMd = postMd.replace("{tags}", meta.tags().stream()
-					.map(t -> {
-						HtmlElement link = new HtmlElement("a");
-						link.setText(t);
-						link.setAttribute("href", "?tag=" + HttpUtils.urlEncode(t));
-						return link.toString();
-					})
-					.collect(Collectors.joining(", ")));
-				postMd = postMd.replace("{description}", meta.description());
-				return postMd;
-			})
-			.filter(Objects::nonNull)
-			.collect(Collectors.joining("\n\n")));
+					return templates.render(Template.INDEX_POST,
+						"title", title.toString(),
+						"author", meta.author(),
+						"date", TimeFormatter.toDateOnly(meta.date()),
+						"date_time", TimeFormatter.toDateAndTime(meta.date()),
+						"date_relative", TimeFormatter.toRelativeTime(meta.date()),
+						"description", meta.description(),
+						"tags", meta.tags().stream()
+							.map(t -> {
+								HtmlElement link = new HtmlElement("a");
+								link.setText(t);
+								link.setAttribute("href", "?tag=" + HttpUtils.urlEncode(t));
+								return link.toString();
+							})
+							.collect(Collectors.joining(", ")));
+				})
+				.collect(Collectors.joining("\n\n")));
 
 		index.getBodyNode().appendChild(new MdRenderer().render(MdParser.parse(indexMd)));
 		index.createContent();
@@ -200,6 +188,10 @@ public class MdBlog {
 		Post post = posts.get(path);
 
 		if(post != null) {
+			if(rawPath.endsWith("/")) {
+				ctx.redirect("../" + path.subPath(path.length() - 1));
+			}
+
 			post.getContent().createContent();
 			return;
 		}
@@ -237,6 +229,7 @@ public class MdBlog {
 	private static Path extract(String path) throws IOException {
 		Path filePath = FILES_PATH.resolve(path);
 		if(!Files.exists(filePath)) {
+			System.out.println("Extracting " + path);
 			Files.createDirectories(filePath.getParent());
 			Files.write(filePath, MdBlog.class.getResourceAsStream("/" + path).readAllBytes());
 		}
@@ -248,13 +241,10 @@ public class MdBlog {
 	}
 
 	private static void updateBlogs() throws IOException {
-		Iterator<Post> it = posts.values().iterator();
-		while(it.hasNext()) {
-			Post p = it.next();
-			if(!p.update()) it.remove();
-		}
-
+		System.out.println("Update");
 		indexTemplates.clear();
+
+		System.out.println(posts);
 
 		Files.walk(POSTS_PATH)
 			.filter(Files::isRegularFile)
@@ -262,19 +252,32 @@ public class MdBlog {
 			.filter(f -> posts.values().stream().noneMatch(p -> p.getFilePath().equals(f)))
 			.forEach(f -> {
 				try {
-					String postName = f.getFileName().toString();
-					postName = postName.substring(0, postName.length() - Post.FILE_EXTENSION.length());
+					String fullPostName = f.getFileName().toString();
+					String postName = fullPostName.substring(0, fullPostName.length() - Post.FILE_EXTENSION.length());
 					PostPath path = PostPath.of(POSTS_PATH.relativize(f).getParent(), postName);
 
-					if(INDEX_NAME.equals(postName) || INDEX_SUB_BLOG_NAME.equals(postName) || INDEX_POST_NAME.equals(postName)) {
+					Template template = Arrays.stream(Template.values())
+						.filter(t -> t.getName().equals(postName))
+						.findFirst().orElse(null);
+					if(template != null) {
 						// File is an index template, don't parse it as a post
-						indexTemplates.put(path, Files.readString(f, StandardCharsets.UTF_8));
+						indexTemplates.computeIfAbsent(path.getParent(), p -> new Templates(defaultTemplates)).put(template, Files.readString(f, StandardCharsets.UTF_8));
 						return;
 					}
 
 					posts.put(path, new Post(f));
 				} catch (IOException e) {}
 			});
+
+		Iterator<Map.Entry<PostPath, Post>> it = posts.entrySet().iterator();
+		while(it.hasNext()) {
+			Map.Entry<PostPath, Post> en = it.next();
+			PostPath path = en.getKey();
+			Post p = en.getValue();
+
+			Templates templates = indexTemplates.getOrDefault(path.getParent(), defaultTemplates);
+			if(!p.update(templates)) it.remove();
+		}
 	}
 
 	private static void watchFolders() throws IOException {
