@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -163,6 +164,7 @@ public class MdBlog {
 							})
 							.collect(Collectors.joining(", ")));
 				})
+				.filter(Objects::nonNull)
 				.collect(Collectors.joining("\n\n")));
 
 		index.getBodyNode().appendChild(new MdRenderer().render(MdParser.parse(indexMd)));
@@ -243,8 +245,6 @@ public class MdBlog {
 	private static void updateBlogs() throws IOException {
 		System.out.println("Update");
 		indexTemplates.clear();
-
-		System.out.println(posts);
 
 		Files.walk(POSTS_PATH)
 			.filter(Files::isRegularFile)
