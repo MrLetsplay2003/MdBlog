@@ -6,8 +6,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -130,6 +132,7 @@ public class MdBlog {
 		String indexMd = templates.render(Template.INDEX,
 			"name", blogName,
 			"sub_blogs", directories.stream()
+				.sorted(Comparator.comparing(p -> p.getName()))
 				.map(p -> {
 					HtmlElement name = new HtmlElement("a");
 					name.setAttribute("href", p.toString());
@@ -139,8 +142,9 @@ public class MdBlog {
 				})
 				.collect(Collectors.joining("\n\n")),
 			"posts", postsInDir.stream()
+				.sorted(Comparator.<PostPath, Instant>comparing(p -> posts.get(path.concat(p)).getMetadata().date()).reversed())
 				.map(p -> {
-					Post post = posts.get(path == null ? p : path.concat(p));
+					Post post = posts.get(path.concat(p));
 					PostMetadata meta = post.getMetadata();
 					if(tag != null && !meta.tags().contains(tag)) return null;
 
