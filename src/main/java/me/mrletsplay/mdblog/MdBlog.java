@@ -22,6 +22,10 @@ import me.mrletsplay.mdblog.blog.Post;
 import me.mrletsplay.mdblog.blog.PostMetadata;
 import me.mrletsplay.mdblog.markdown.MdParser;
 import me.mrletsplay.mdblog.markdown.MdRenderer;
+import me.mrletsplay.mdblog.rss.FeedConfig;
+import me.mrletsplay.mdblog.rss.RSSFeed;
+import me.mrletsplay.mdblog.rss.RSSItem;
+import me.mrletsplay.mdblog.rss.RSSResponse;
 import me.mrletsplay.mdblog.template.Template;
 import me.mrletsplay.mdblog.template.Templates;
 import me.mrletsplay.mdblog.util.PostPath;
@@ -30,6 +34,7 @@ import me.mrletsplay.mrcore.http.HttpUtils;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlDocument;
 import me.mrletsplay.simplehttpserver.dom.html.HtmlElement;
 import me.mrletsplay.simplehttpserver.http.HttpRequestMethod;
+import me.mrletsplay.simplehttpserver.http.HttpStatusCodes;
 import me.mrletsplay.simplehttpserver.http.document.FileDocument;
 import me.mrletsplay.simplehttpserver.http.request.HttpRequestContext;
 import me.mrletsplay.simplehttpserver.http.server.HttpServer;
@@ -40,12 +45,17 @@ public class MdBlog {
 		FILES_PATH = Path.of("files"),
 		POSTS_PATH = FILES_PATH.resolve("posts");
 
+	private static final String
+		FEED_NAME = "feed.xml",
+		FEED_CONFIG_NAME = "feed.txt";
+
 	private static HttpServer server;
 	private static WatchService watchService;
 	private static List<WatchKey> watchedDirectories;
 	private static Map<PostPath, Post> posts;
 	private static Map<PostPath, Templates> indexTemplates;
 	private static Map<PostPath, FileDocument> globalResources;
+	private static Map<PostPath, FeedConfig> feedConfigs;
 
 	private static Templates defaultTemplates;
 
@@ -56,6 +66,7 @@ public class MdBlog {
 			.create());
 
 		server.getDocumentProvider().register(HttpRequestMethod.GET, "/", () -> createPostsIndex(PostPath.root()));
+
 		server.getDocumentProvider().registerPattern(HttpRequestMethod.GET, "/{path...}", () -> handleRequest(HttpRequestContext.getCurrentContext()));
 
 		defaultTemplates = new Templates(null);
@@ -74,6 +85,7 @@ public class MdBlog {
 		posts = new HashMap<>();
 		indexTemplates = new HashMap<>();
 		globalResources = new HashMap<>();
+		feedConfigs = new HashMap<>();
 
 		extractAndRegister("style/base.css");
 		extractAndRegister("style/index.css");
@@ -105,7 +117,7 @@ public class MdBlog {
 
 		// Generate posts index
 		List<PostPath> allPaths = posts.keySet().stream()
-			.filter(p -> path == null || (p.startsWith(path) && !p.equals(path)))
+			.filter(p -> p.startsWith(path) && !p.equals(path))
 			.map(p -> path == null ? p : p.subPath(path.length()))
 			.toList();
 
@@ -191,6 +203,25 @@ public class MdBlog {
 			return;
 		}
 
+		if(path.getName().equals(FEED_NAME)) {
+			PostPath blogPath = path.getParent();
+			FeedConfig config = feedConfigs.get(blogPath);
+			if(config != null) {
+				boolean recursive = ctx.getRequestedPath().getQuery().getFirst("recursive", "false").equals("true");
+
+				RSSFeed feed = new RSSFeed(config.title(), config.link(), config.description());
+
+				posts.entrySet().stream()
+					.filter(e -> e.getKey().startsWith(blogPath) && (recursive || e.getKey().length() == path.length()))
+					.forEach(e -> {
+						Post p = e.getValue();
+						feed.addItem(new RSSItem(p.getMetadata().title(), p.getMetadata().author(), config.link() + "/" + e.getKey().subPath(blogPath.length()), p.getMetadata().description()));
+					});
+				ctx.respond(HttpStatusCodes.OK_200, new RSSResponse(feed));
+				return;
+			}
+		}
+
 		Post post = posts.get(path);
 
 		if(post != null) {
@@ -247,8 +278,8 @@ public class MdBlog {
 	}
 
 	private static void updateBlogs() throws IOException {
-		System.out.println("Update");
 		indexTemplates.clear();
+		feedConfigs.clear();
 
 		Files.walk(POSTS_PATH)
 			.filter(Files::isRegularFile)
@@ -271,6 +302,18 @@ public class MdBlog {
 
 					posts.put(path, new Post(f));
 				} catch (IOException e) {}
+			});
+
+		Files.walk(POSTS_PATH)
+			.filter(Files::isRegularFile)
+			.filter(f -> f.getFileName().toString().equals(FEED_CONFIG_NAME))
+			.forEach(f -> {
+				try {
+					PostPath path = PostPath.of(POSTS_PATH.relativize(f).getParent());
+					String configString = Files.readString(f, StandardCharsets.UTF_8);
+					FeedConfig config = FeedConfig.load(configString);
+					feedConfigs.put(path, config);
+				}catch(IOException e) {}
 			});
 
 		Iterator<Map.Entry<PostPath, Post>> it = posts.entrySet().iterator();
