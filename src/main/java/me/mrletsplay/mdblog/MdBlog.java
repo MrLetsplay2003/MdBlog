@@ -215,7 +215,7 @@ public class MdBlog {
 					.filter(e -> e.getKey().startsWith(blogPath) && (recursive || e.getKey().length() == path.length()))
 					.forEach(e -> {
 						Post p = e.getValue();
-						feed.addItem(new RSSItem(p.getMetadata().title(), p.getMetadata().author(), config.link() + "/" + e.getKey().subPath(blogPath.length()), p.getMetadata().description()));
+						feed.addItem(new RSSItem(p.getMetadata().date(), p.getMetadata().title(), p.getMetadata().author(), config.link() + "/" + e.getKey().subPath(blogPath.length()), p.getMetadata().description()));
 					});
 				ctx.respond(HttpStatusCodes.OK_200, new RSSResponse(feed));
 				return;

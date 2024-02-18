@@ -1,5 +1,7 @@
 package me.mrletsplay.mdblog.rss;
 
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -54,6 +56,10 @@ public class RSSFeed {
 		for(RSSItem item : items) {
 			Element itemEl = doc.createElement("item");
 			channel.appendChild(itemEl);
+
+			Element itDate = doc.createElement("pubDate");
+			itDate.setTextContent(DateTimeFormatter.RFC_1123_DATE_TIME.format(item.date().atZone(ZoneId.systemDefault())));
+			itemEl.appendChild(itDate);
 
 			Element itTitle = doc.createElement("title");
 			itTitle.setTextContent(item.title());
