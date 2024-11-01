@@ -23,6 +23,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: mrletsplay/mdblog
+          tags: |
+            type=sha
+            type=raw,latest
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
